@@ -398,6 +398,15 @@ Redo:
     return bail_out;
 }
 
+int h2o_http2_scheduler_run_once(h2o_http2_scheduler_node_t *root, h2o_http2_scheduler_run_cb cb, void *cb_arg) {
+    if (root->_queue != NULL) {
+        if(!queue_is_empty(root->_queue)) {
+            return proceed(root, cb, cb_arg);
+        }
+    }
+    return 1;
+}
+
 int h2o_http2_scheduler_run(h2o_http2_scheduler_node_t *root, h2o_http2_scheduler_run_cb cb, void *cb_arg)
 {
     if (root->_queue != NULL) {

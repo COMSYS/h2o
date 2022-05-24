@@ -297,6 +297,9 @@ static void finish_body_streaming(h2o_http2_stream_t *stream)
 
 void h2o_http2_conn_unregister_stream(h2o_http2_conn_t *conn, h2o_http2_stream_t *stream)
 {
+    if(conn->sched_info.h2_sched_strategy) {
+        h2vsh3_manual_strategies_priotree_remove(&conn->sched_info, &stream->_scheduler);
+    }
     h2o_http2_conn_preserve_stream_scheduler(conn, stream);
 
     khiter_t iter = kh_get(h2o_http2_stream_t, conn->streams, stream->stream_id);
@@ -371,6 +374,9 @@ void close_connection_now(h2o_http2_conn_t *conn)
             if (closed_stream == NULL)
                 break;
             assert(h2o_http2_scheduler_is_open(&closed_stream->_scheduler));
+            if(conn->sched_info.h2_sched_strategy) {
+                h2vsh3_manual_strategies_priotree_remove(&conn->sched_info, &closed_stream->_scheduler);
+            }
             h2o_http2_scheduler_close(&closed_stream->_scheduler);
             free(closed_stream);
         }
@@ -502,6 +508,13 @@ static int handle_incoming_request(h2o_http2_conn_t *conn, h2o_http2_stream_t *s
         stream->req.input.scheme = conn->sock->ssl != NULL ? &H2O_URL_SCHEME_HTTPS : &H2O_URL_SCHEME_HTTP;
 
     h2o_probe_log_request(&stream->req, stream->stream_id);
+    if(conn->sched_info.h2_sched_strategy) {
+        h2o_http2_scheduler_node_t *parent;
+        uint16_t weight;
+        int exclusive;
+        h2vsh3_manual_strategies_priotree_compute(&conn->sched_info, &stream->_scheduler, &stream->req, &parent, &weight, &exclusive);
+        h2o_http2_scheduler_rebind(&stream->_scheduler, parent, weight, exclusive);
+    }
 
     /* check existence of pseudo-headers */
     if (h2o_memis(stream->req.input.method.base, stream->req.input.method.len, H2O_STRLIT("CONNECT"))) {
@@ -527,6 +540,11 @@ static int handle_incoming_request(h2o_http2_conn_t *conn, h2o_http2_stream_t *s
     if (conn->num_streams.pull.open > H2O_HTTP2_SETTINGS_HOST_MAX_CONCURRENT_STREAMS) {
         ret = H2O_HTTP2_ERROR_REFUSED_STREAM;
         goto SendRSTStream;
+    }
+
+    if(!conn->sched_info.h2_sched_strategy) {
+        fprintf(stderr, "request %.*s %.*s://%.*s%.*s stream: %d conn: %p\n", (int) stream->req.input.method.len, stream->req.input.method.base, (int) stream->req.input.scheme->name.len, stream->req.input.scheme->name.base,
+            (int) stream->req.input.authority.len, stream->req.input.authority.base, (int) stream->req.input.path.len, stream->req.input.path.base, stream->stream_id, conn);
     }
 
     /* send 400 if the request contains invalid header characters */
@@ -638,6 +656,11 @@ static void set_priority(h2o_http2_conn_t *conn, h2o_http2_stream_t *stream, con
 {
     h2o_http2_scheduler_node_t *parent_sched = NULL;
 
+    if(!conn->sched_info.h2_sched_strategy) {
+        fprintf(stderr, "priority stream: %d ex: %d dep: %d w: %d was_open: %d conn: %p\n", stream->stream_id,
+            priority->exclusive, priority->dependency, priority->weight, scheduler_is_open, conn);
+    }
+
     /* determine the parent */
     if (priority->dependency != 0) {
         size_t i;
@@ -725,11 +748,18 @@ static void set_priority(h2o_http2_conn_t *conn, h2o_http2_stream_t *stream, con
         conn->is_chromium_dependency_tree = 0;
     }
 
-    /* setup the scheduler */
-    if (!scheduler_is_open) {
-        h2o_http2_scheduler_open(&stream->_scheduler, parent_sched, priority->weight, priority->exclusive);
-    } else {
-        h2o_http2_scheduler_rebind(&stream->_scheduler, parent_sched, priority->weight, priority->exclusive);
+    if(conn->sched_info.h2_sched_strategy) {
+        if (!scheduler_is_open) {
+            h2o_http2_scheduler_open(&stream->_scheduler, &conn->scheduler, h2o_http2_default_priority.weight, h2o_http2_default_priority.exclusive);
+        }
+    }
+    else {
+        /* setup the scheduler */
+        if (!scheduler_is_open) {
+            h2o_http2_scheduler_open(&stream->_scheduler, parent_sched, priority->weight, priority->exclusive);
+        } else {
+            h2o_http2_scheduler_rebind(&stream->_scheduler, parent_sched, priority->weight, priority->exclusive);
+        }
     }
 }
 
@@ -944,6 +974,10 @@ static int handle_priority_frame(h2o_http2_conn_t *conn, h2o_http2_frame_t *fram
     if (frame->stream_id == payload.dependency) {
         *err_desc = "stream cannot depend on itself";
         return H2O_HTTP2_ERROR_PROTOCOL;
+    }
+    if(!conn->sched_info.h2_sched_strategy) {
+        fprintf(stderr, "got priority frame stream: %d ex: %d dep: %d w: %d conn: %p\n", frame->stream_id,
+            payload.exclusive, payload.dependency, payload.weight, conn);
     }
 
     if ((stream = h2o_http2_conn_get_stream(conn, frame->stream_id)) != NULL) {
@@ -1627,7 +1661,11 @@ static h2o_http2_conn_t *create_conn(h2o_context_t *ctx, h2o_hostconf_t **hosts,
     conn->sock = sock;
     conn->peer_settings = H2O_HTTP2_SETTINGS_DEFAULT;
     conn->streams = kh_init(h2o_http2_stream_t);
+
     h2o_http2_scheduler_init(&conn->scheduler);
+
+    h2vsh3_manual_strategies_init_conn(&conn->sched_info, h2vsh3_manual_strategies_get_default(), &conn->scheduler);
+
     conn->state = H2O_HTTP2_CONN_STATE_OPEN;
     h2o_linklist_insert(&ctx->http2._conns, &conn->_conns);
     conn->_read_expect = expect_preface;

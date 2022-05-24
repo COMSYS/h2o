@@ -274,7 +274,7 @@ static int send_headers(h2o_http2_conn_t *conn, h2o_http2_stream_t *stream)
     } else {
         /* Handle absolute priority header */
         ssize_t absprio_cursor = h2o_find_header(&stream->req.res.headers, H2O_TOKEN_PRIORITY, -1);
-        if (absprio_cursor != -1 && conn->is_chromium_dependency_tree) {
+        if (absprio_cursor != -1 && conn->is_chromium_dependency_tree && 0) { // h2vsh3 disables reprio
             /* Found absolute priority header in the response header */
             h2o_absprio_t prio = h2o_absprio_default;
             h2o_iovec_t *header_value = &stream->req.res.headers.entries[absprio_cursor].value;
@@ -297,7 +297,7 @@ static int send_headers(h2o_http2_conn_t *conn, h2o_http2_stream_t *stream)
                 h2o_http2_scheduler_open(&stream->_scheduler, new_parent, new_weight, 1);
             }
         } else if (conn->num_streams.priority.open == 0 && stream->req.hostconf->http2.reprioritize_blocking_assets &&
-                   h2o_http2_scheduler_get_parent(&stream->_scheduler) == &conn->scheduler && is_blocking_asset(&stream->req)) {
+                   h2o_http2_scheduler_get_parent(&stream->_scheduler) == &conn->scheduler && is_blocking_asset(&stream->req) && 0) {
             /* raise the priority of asset files that block rendering to highest if the user-agent is _not_ using dependency-based
              * prioritization (e.g. that of Firefox)
              */

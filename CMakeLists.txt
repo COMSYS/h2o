@@ -480,6 +480,9 @@ SET(LIB_SOURCE_FILES
     lib/http3/common.c
     lib/http3/server.c
 
+    lib/h2vsh3/manual_strategies.c
+    lib/h2vsh3/manual_strategies_variants.c
+
     ${CMAKE_CURRENT_BINARY_DIR}/quicly-tracer.h)
 
 IF (WITH_DTRACE)

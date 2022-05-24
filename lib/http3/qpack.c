@@ -139,7 +139,7 @@ struct st_h2o_qpack_flatten_context_t {
 };
 
 #define MAX_HEADER_NAME_LENGTH 128
-#define MAX_HEADER_VALUE_LENGTH 4096
+#define MAX_HEADER_VALUE_LENGTH 10240
 
 const char *h2o_qpack_err_header_name_too_long = "header name too long";
 const char *h2o_qpack_err_header_value_too_long = "header value too long";

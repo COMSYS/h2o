@@ -75,6 +75,7 @@
 #include "h2o/http1.h"
 #include "h2o/http2.h"
 #include "h2o/http3_server.h"
+#include "../lib/h2vsh3/manual_strategies.h"
 #include "h2o/serverutil.h"
 #include "h2o/file.h"
 #if H2O_USE_MRUBY
@@ -3027,6 +3028,9 @@ static void on_server_notification(h2o_multithread_receiver_t *receiver, h2o_lin
     }
 }
 
+char* opt_prio;
+char* opt_prio_file;
+
 static void *run_loop(void *_thread_index)
 {
     thread_index = (size_t)_thread_index;
@@ -3117,6 +3121,14 @@ static void *run_loop(void *_thread_index)
         h2o_set_signal_handler(SIGTERM, on_sigterm_set_flag_notify_threads);
         if (conf.shutdown_requested)
             exit(0);
+        if(h2vsh3_manual_strategies_init(opt_prio_file)) {
+            if(!h2vsh3_manual_strategies_use(opt_prio)) {
+               fprintf(stderr, "unknown priority strategy - normal mode\n");
+            }
+            else {
+                fprintf(stderr, "use own priority strategy %s - preset mode\n", opt_prio);
+            }
+        }
         fprintf(stderr, "h2o server (pid:%d) is ready to serve requests with %zu threads\n", (int)getpid(), conf.thread_map.size);
     }
     h2o_barrier_wait_post_sync_point(&conf.startup_sync_barrier);
@@ -3540,6 +3552,9 @@ int main(int argc, char **argv)
     int n, error_log_fd = -1;
     size_t num_procs = h2o_numproc();
 
+    opt_prio = "";
+    opt_prio_file = "";
+
     h2o_vector_reserve(NULL, &conf.thread_map, num_procs);
     for (n = 0; n < num_procs; n++)
         conf.thread_map.entries[conf.thread_map.size++] = -1;
@@ -3560,10 +3575,16 @@ int main(int argc, char **argv)
         static struct option longopts[] = {{"conf", required_argument, NULL, 'c'}, {"mode", required_argument, NULL, 'm'},
                                            {"test", no_argument, NULL, 't'},       {"version", no_argument, NULL, 'v'},
                                            {"help", no_argument, NULL, 'h'},       {NULL}};
-        while ((ch = getopt_long(argc, argv, "c:m:tvh", longopts, NULL)) != -1) {
+        while ((ch = getopt_long(argc, argv, "c:m:tvhp:P:", longopts, NULL)) != -1) {
             switch (ch) {
             case 'c':
                 opt_config_file = optarg;
+                break;
+            case 'p':
+                opt_prio = optarg;
+                break;
+            case 'P':
+                opt_prio_file = optarg;
                 break;
             case 'm':
                 if (strcmp(optarg, "worker") == 0) {

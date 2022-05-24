@@ -28,6 +28,7 @@
 #include "h2o/cache.h"
 #include "h2o/http2_casper.h"
 #include "h2o/http2_scheduler.h"
+#include "../lib/h2vsh3/manual_strategies.h"
 
 typedef struct st_h2o_http2_conn_t h2o_http2_conn_t;
 typedef struct st_h2o_http2_stream_t h2o_http2_stream_t;
@@ -143,6 +144,7 @@ typedef enum enum_h2o_http2_conn_state_t {
 struct st_h2o_http2_conn_t {
     h2o_conn_t super;
     h2o_socket_t *sock;
+    struct st_h2o_h2vsh3_sched_info_t sched_info;
     /* settings */
     h2o_http2_settings_t peer_settings;
     /* streams */
